@@ -1,0 +1,605 @@
+"""
+Streamlit App: Customer Churn Prediction & CLV Analysis
+
+Single-page app with 3 tabs:
+1. Predict: Input customer features and get churn prediction + CLV
+2. Model Performance: View metrics, ROC curves, confusion matrices
+3. CLV Overview: CLV distribution and churn analysis by segment
+"""
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import joblib
+from pathlib import Path
+import warnings
+warnings.filterwarnings('ignore')
+
+# Try to import SHAP
+try:
+    import shap
+    SHAP_AVAILABLE = True
+except ImportError:
+    SHAP_AVAILABLE = False
+
+# Import custom modules
+import sys
+sys.path.insert(0, str(Path(__file__).parent / 'src'))
+
+from data_prep import encode_categorical_features
+from interpretability import (
+    get_logistic_regression_importance,
+    get_tree_explainer_importance,
+    get_local_explanation
+)
+from predict import predict_churn, calculate_clv, get_churn_risk_label
+
+
+# ============================================================================
+# CACHING FUNCTIONS
+# ============================================================================
+
+@st.cache_data
+def load_processed_data():
+    """Load processed splits."""
+    train = pd.read_csv('data/processed/train.csv')
+    val = pd.read_csv('data/processed/val.csv')
+    test = pd.read_csv('data/processed/test.csv')
+    return train, val, test
+
+
+@st.cache_resource
+def load_models():
+    """Load trained models."""
+    return {
+        'Logistic Regression': joblib.load('models/logistic_regression.pkl'),
+        'Random Forest': joblib.load('models/random_forest.pkl'),
+        'XGBoost': joblib.load('models/xgboost.pkl')
+    }
+
+
+@st.cache_resource
+def load_importance():
+    """Load feature importance tables."""
+    return {
+        'Logistic Regression': pd.read_csv('models/logistic_regression_importance.csv'),
+        'Random Forest': pd.read_csv('models/random_forest_importance.csv'),
+        'XGBoost': pd.read_csv('models/xgboost_importance.csv')
+    }
+
+
+@st.cache_data
+def load_test_results():
+    """Load test evaluation results."""
+    return pd.read_csv('models/test_results.csv', index_col='Model')
+
+
+@st.cache_resource
+def get_shap_explainer(model):
+    """Get SHAP TreeExplainer for a model (cached)."""
+    if not SHAP_AVAILABLE:
+        return None
+    return shap.TreeExplainer(model)
+
+
+# ============================================================================
+# PAGE CONFIG
+# ============================================================================
+
+st.set_page_config(
+    page_title="Churn Prediction & CLV Analysis",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+st.markdown("""
+<style>
+    .metric-card {
+        background-color: #f0f2f6;
+        padding: 20px;
+        border-radius: 10px;
+        margin: 10px 0;
+    }
+    .high-risk { color: #d62728; font-weight: bold; }
+    .medium-risk { color: #ff7f0e; font-weight: bold; }
+    .low-risk { color: #2ca02c; font-weight: bold; }
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================================
+# HEADER
+# ============================================================================
+
+st.title("📊 Customer Churn Prediction & CLV Analysis")
+st.markdown("""
+This app predicts customer churn and estimates Customer Lifetime Value (CLV) 
+using machine learning. Optimize retention efforts by identifying high-value 
+customers at risk of leaving.
+""")
+
+# ============================================================================
+# TABS
+# ============================================================================
+
+tab1, tab2, tab3 = st.tabs(["🔮 Predict", "📈 Model Performance", "💰 CLV Overview"])
+
+
+# ============================================================================
+# TAB 1: PREDICT
+# ============================================================================
+
+with tab1:
+    st.header("Make a Prediction")
+    
+    # Load data for categorical encoding info
+    train_df, _, _ = load_processed_data()
+    models = load_models()
+    importance_dict = load_importance()
+    
+    st.markdown("""
+    Enter customer details below to predict churn probability and estimated CLV.
+    **Note:** Numeric values should match the expected ranges in the dataset.
+    """)
+    
+    # ========== PERSONAL INFO ==========
+    st.subheader("👤 Personal Information")
+    col1, col2 = st.columns(2)
+    with col1:
+        gender = st.selectbox("Gender", ["Male", "Female"], help="Customer gender")
+        senior_citizen = st.checkbox("Senior Citizen?", value=False)
+    with col2:
+        partner = st.checkbox("Has Partner?", value=False)
+        dependents = st.checkbox("Has Dependents?", value=False)
+    
+    # ========== SERVICE INFO ==========
+    st.subheader("📞 Service Information")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        phone_service = st.selectbox("Phone Service", ["Yes", "No"], help="Has phone service")
+        multiple_lines = st.selectbox(
+            "Multiple Lines", 
+            ["No", "No phone service", "Yes"],
+            help="Multiple phone lines"
+        )
+        internet_service = st.selectbox(
+            "Internet Service",
+            ["No", "DSL", "Fiber optic"],
+            help="Type of internet service"
+        )
+    
+    with col2:
+        online_security = st.selectbox("Online Security", ["Yes", "No"], help="Online security addon")
+        online_backup = st.selectbox("Online Backup", ["Yes", "No"], help="Online backup addon")
+        device_protection = st.selectbox("Device Protection", ["Yes", "No"], help="Device protection addon")
+    
+    with col3:
+        tech_support = st.selectbox("Tech Support", ["Yes", "No"], help="Tech support addon")
+        streaming_tv = st.selectbox("Streaming TV", ["Yes", "No"], help="Streaming TV addon")
+        streaming_movies = st.selectbox("Streaming Movies", ["Yes", "No"], help="Streaming movies addon")
+    
+    # ========== ACCOUNT INFO ==========
+    st.subheader("💳 Account Information")
+    col1, col2 = st.columns(2)
+    with col1:
+        tenure = st.number_input(
+            "Tenure (months)",
+            min_value=0,
+            max_value=72,
+            value=12,
+            help="Number of months as a customer"
+        )
+        
+        monthly_charges = st.number_input(
+            "Monthly Charges ($)",
+            min_value=0.0,
+            max_value=200.0,
+            value=65.0,
+            step=5.0,
+            help="Monthly service charges"
+        )
+        
+        total_charges = st.number_input(
+            "Total Charges ($)",
+            min_value=0.0,
+            max_value=10000.0,
+            value=780.0,
+            step=50.0,
+            help="Cumulative charges to date"
+        )
+    
+    with col2:
+        contract = st.selectbox(
+            "Contract Type",
+            ["Month-to-month", "One year", "Two year"],
+            help="Contract length"
+        )
+        paperless_billing = st.selectbox("Paperless Billing", ["Yes", "No"], help="Paperless billing enabled")
+        payment_method = st.selectbox(
+            "Payment Method",
+            ["Bank transfer", "Credit card", "Electronic check", "Mailed check"],
+            help="Preferred payment method"
+        )
+    
+    # ========== FEATURE ENGINEERING DISPLAY ==========
+    st.subheader("📊 Calculated Features")
+    col1, col2, col3 = st.columns(3)
+    
+    # Tenure bucket
+    if tenure < 6:
+        tenure_bucket = '0-6m'
+    elif tenure < 12:
+        tenure_bucket = '6-12m'
+    elif tenure < 24:
+        tenure_bucket = '12-24m'
+    else:
+        tenure_bucket = '24m+'
+    
+    with col1:
+        st.info(f"📍 **Tenure Bucket:** {tenure_bucket}")
+    
+    # Services count (manually calculate)
+    services = [online_security, online_backup, device_protection, tech_support, streaming_tv, streaming_movies]
+    services_count = sum(1 for s in services if s == 'Yes')
+    
+    with col2:
+        st.info(f"🔧 **Services Count:** {services_count}/6")
+    
+    # Monthly to total ratio
+    ratio = monthly_charges / max(1, total_charges)
+    with col3:
+        st.info(f"📊 **Monthly/Total Ratio:** {ratio:.4f}")
+    
+    # CLV calculation
+    expected_tenure = 24
+    adjusted_tenure = max(tenure, expected_tenure)
+    estimated_clv = monthly_charges * adjusted_tenure
+    
+    st.metric("Estimated CLV", f"${estimated_clv:.2f}", 
+              delta=f"${monthly_charges:.2f}/month × {adjusted_tenure} months")
+    
+    # Make prediction
+    if st.button("🚀 Predict Churn & CLV", use_container_width=True):
+        
+        # Build input dict with all features in alphabetical order (matching encoder)
+        input_dict = {
+            'gender': gender,
+            'SeniorCitizen': int(senior_citizen),
+            'Partner': 'Yes' if partner else 'No',
+            'Dependents': 'Yes' if dependents else 'No',
+            'tenure': tenure,
+            'PhoneService': phone_service,
+            'MultipleLines': multiple_lines,
+            'InternetService': internet_service,
+            'OnlineSecurity': online_security,
+            'OnlineBackup': online_backup,
+            'DeviceProtection': device_protection,
+            'TechSupport': tech_support,
+            'StreamingTV': streaming_tv,
+            'StreamingMovies': streaming_movies,
+            'Contract': contract,
+            'PaperlessBilling': paperless_billing,
+            'PaymentMethod': payment_method,
+            'MonthlyCharges': monthly_charges,
+            'TotalCharges': total_charges,
+            'tenure_bucket': tenure_bucket,
+            'services_count': services_count,
+            'monthly_to_total_ratio': ratio,
+            'internet_no_techsupport': int(internet_service != 'No' and tech_support == 'No')
+        }
+        
+        # Get predictions
+        result = predict_churn(input_dict, models, train_df)
+        
+        # Display results
+        st.markdown("---")
+        st.subheader("🎯 Prediction Results")
+        
+        # Churn probability
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            ensemble_proba = result['ensemble_probability']
+            st.metric(
+                "Ensemble Probability",
+                f"{ensemble_proba*100:.1f}%",
+                delta=f"{get_churn_risk_label(ensemble_proba)}"
+            )
+        
+        with col2:
+            lr_proba = result['individual_probabilities']['Logistic Regression']
+            st.metric(
+                "Logistic Regression",
+                f"{lr_proba*100:.1f}%"
+            )
+        
+        with col3:
+            # Show the higher risk model prediction
+            rf_proba = result['individual_probabilities']['Random Forest']
+            xgb_proba = result['individual_probabilities']['XGBoost']
+            
+            st.metric(
+                "RF & XGBoost (Avg)",
+                f"{(rf_proba + xgb_proba)/2*100:.1f}%"
+            )
+        
+        # Risk label with color
+        risk_label = get_churn_risk_label(ensemble_proba)
+        if ensemble_proba < 0.3:
+            st.success(f"✅ **Risk Level: {risk_label}** - This customer is stable.")
+        elif ensemble_proba < 0.6:
+            st.warning(f"⚠️ **Risk Level: {risk_label}** - Monitor this customer.")
+        else:
+            st.error(f"🚨 **Risk Level: {risk_label}** - Urgent action recommended!")
+        
+        # CLV and value retention
+        st.markdown("---")
+        st.subheader("💰 Customer Lifetime Value")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Estimated CLV", f"${estimated_clv:.2f}")
+            st.caption(f"Expected value over {adjusted_tenure} months at ${monthly_charges:.2f}/month")
+        
+        with col2:
+            retention_value = estimated_clv * (1 - ensemble_proba)
+            st.metric("Retained Value at Current Risk", f"${retention_value:.2f}")
+            st.caption(f"Expected CLV if retention efforts succeed")
+        
+        # Model agreement
+        st.markdown("---")
+        st.subheader("🔍 Model Agreement")
+        
+        proba_values = list(result['individual_probabilities'].values())
+        proba_std = np.std(proba_values)
+        proba_range = max(proba_values) - min(proba_values)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Prediction Range", f"{proba_range*100:.1f}%")
+        with col2:
+            if proba_range < 0.1:
+                st.success("✅ Models agree (high confidence)")
+            elif proba_range < 0.2:
+                st.info("ℹ️ Models mostly agree")
+            else:
+                st.warning("⚠️ Models disagree (lower confidence)")
+        
+        # Feature importance explanation
+        st.markdown("---")
+        st.subheader("📊 Feature Importance")
+        
+        st.info("""
+        The charts below show which features are most influential in predicting churn.
+        **For this customer:** The features entered above (tenure, monthly charges, services, etc.)
+        are evaluated by each model to produce the churn prediction.
+        """)
+        
+        # Global importance for reference
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.subheader("Logistic Regression")
+            lr_imp = importance_dict['Logistic Regression'].head(8)
+            fig, ax = plt.subplots(figsize=(6, 4))
+            ax.barh(range(len(lr_imp)), lr_imp['Importance'].values, color='#1f77b4')
+            ax.set_yticks(range(len(lr_imp)))
+            ax.set_yticklabels(lr_imp['Feature'].values, fontsize=9)
+            ax.set_xlabel('Importance', fontsize=9)
+            ax.invert_yaxis()
+            plt.tight_layout()
+            st.pyplot(fig)
+        
+        with col2:
+            st.subheader("Random Forest")
+            rf_imp = importance_dict['Random Forest'].head(8)
+            fig, ax = plt.subplots(figsize=(6, 4))
+            ax.barh(range(len(rf_imp)), rf_imp['Importance'].values, color='#ff7f0e')
+            ax.set_yticks(range(len(rf_imp)))
+            ax.set_yticklabels(rf_imp['Feature'].values, fontsize=9)
+            ax.set_xlabel('Importance', fontsize=9)
+            ax.invert_yaxis()
+            plt.tight_layout()
+            st.pyplot(fig)
+        
+        with col3:
+            st.subheader("XGBoost")
+            xgb_imp = importance_dict['XGBoost'].head(8)
+            fig, ax = plt.subplots(figsize=(6, 4))
+            ax.barh(range(len(xgb_imp)), xgb_imp['Importance'].values, color='#2ca02c')
+            ax.set_yticks(range(len(xgb_imp)))
+            ax.set_yticklabels(xgb_imp['Feature'].values, fontsize=9)
+            ax.set_xlabel('Importance', fontsize=9)
+            ax.invert_yaxis()
+            plt.tight_layout()
+            st.pyplot(fig)
+
+
+# ============================================================================
+# TAB 2: MODEL PERFORMANCE
+# ============================================================================
+
+with tab2:
+    st.header("Model Performance on Test Set")
+    
+    test_results = load_test_results()
+    
+    st.markdown("""
+    This section shows how all 3 models performed on the held-out test set.
+    **Test set:** 20% of data, unseen during training.
+    """)
+    
+    # Metrics table
+    st.subheader("📊 Performance Metrics")
+    st.dataframe(
+        test_results.round(4),
+        use_container_width=True,
+        height=200
+    )
+    
+    st.markdown("""
+    **Metric Definitions:**
+    - **Accuracy**: % of correct predictions
+    - **Precision**: Of predicted churners, % that actually churned
+    - **Recall**: Of actual churners, % we correctly identified
+    - **F1-Score**: Harmonic mean of Precision and Recall
+    - **AUC-ROC**: Area Under the Receiver Operating Characteristic curve (0.5–1.0)
+    """)
+    
+    # ROC curves
+    st.subheader("📈 ROC Curves")
+    
+    try:
+        fig = plt.figure(figsize=(10, 7))
+        img = plt.imread('figures/roc_curves.png')
+        plt.imshow(img)
+        plt.axis('off')
+        st.pyplot(fig)
+    except FileNotFoundError:
+        st.warning("ROC curves plot not found. Please run training first.")
+    
+    st.markdown("""
+    The ROC curve shows the trade-off between True Positive Rate and False Positive Rate.
+    A perfect model touches the top-left corner (AUC = 1.0). Random guessing is the diagonal line (AUC = 0.5).
+    """)
+    
+    # Confusion matrices
+    st.subheader("🎯 Confusion Matrices")
+    
+    try:
+        fig = plt.figure(figsize=(14, 4))
+        img = plt.imread('figures/confusion_matrices.png')
+        plt.imshow(img)
+        plt.axis('off')
+        st.pyplot(fig)
+    except FileNotFoundError:
+        st.warning("Confusion matrices plot not found. Please run training first.")
+    
+    st.markdown("""
+    Each matrix shows:
+    - **TN (Top-left)**: Correctly predicted no churn
+    - **FP (Top-right)**: Incorrectly predicted churn
+    - **FN (Bottom-left)**: Missed churn
+    - **TP (Bottom-right)**: Correctly predicted churn
+    """)
+    
+    # Feature importance
+    st.subheader("🔍 Global Feature Importance")
+    
+    try:
+        fig = plt.figure(figsize=(16, 5))
+        img = plt.imread('figures/global_feature_importance.png')
+        plt.imshow(img)
+        plt.axis('off')
+        st.pyplot(fig)
+    except FileNotFoundError:
+        st.warning("Feature importance plot not found. Please run training first.")
+    
+    st.markdown("""
+    Feature importance shows which inputs drive churn predictions:
+    - **Logistic Regression**: Standardized coefficients (|coef × std|)
+    - **Random Forest & XGBoost**: Mean absolute SHAP values (impact on predictions)
+    """)
+
+
+# ============================================================================
+# TAB 3: CLV OVERVIEW
+# ============================================================================
+
+with tab3:
+    st.header("💰 Customer Lifetime Value Overview")
+    
+    train_df, _, _ = load_processed_data()
+    
+    st.markdown("""
+    This section analyzes CLV distribution and churn patterns by segment.
+    Insights guide retention prioritization.
+    """)
+    
+    # Ensure CLV_quartile exists
+    if 'CLV_quartile' not in train_df.columns:
+        train_df['CLV_quartile'] = pd.qcut(train_df['CLV'], q=4, labels=['Low', 'Medium', 'High', 'Premium'])
+    
+    # CLV distribution
+    st.subheader("📊 CLV Distribution")
+    
+    try:
+        fig = plt.figure(figsize=(14, 5))
+        img = plt.imread('figures/clv_distribution.png')
+        plt.imshow(img)
+        plt.axis('off')
+        st.pyplot(fig)
+    except FileNotFoundError:
+        st.warning("CLV distribution plot not found.")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Mean CLV", f"${train_df['CLV'].mean():.2f}")
+    with col2:
+        st.metric("Median CLV", f"${train_df['CLV'].median():.2f}")
+    with col3:
+        st.metric("Total Customer Value", f"${train_df['CLV'].sum():.0f}")
+    
+    # Churn by CLV quartile
+    st.subheader("📈 Churn Rate by CLV Segment")
+    
+    try:
+        fig = plt.figure(figsize=(14, 5))
+        img = plt.imread('figures/churn_by_clv.png')
+        plt.imshow(img)
+        plt.axis('off')
+        st.pyplot(fig)
+    except FileNotFoundError:
+        st.warning("Churn by CLV plot not found.")
+    
+    # Detailed analysis by quartile
+    st.subheader("📋 Segment Analysis")
+    
+    churn_by_quartile = train_df.groupby('CLV_quartile', observed=True).agg({
+        'Churn_encoded': ['count', 'sum', 'mean'],
+        'CLV': ['mean', 'median']
+    }).round(2)
+    
+    churn_by_quartile.columns = ['Total_Customers', 'Churned', 'Churn_Rate', 'Avg_CLV', 'Median_CLV']
+    churn_by_quartile['Churn_Rate'] = (churn_by_quartile['Churn_Rate'] * 100).round(1)
+    
+    st.dataframe(churn_by_quartile, use_container_width=True)
+    
+    # Business takeaway
+    st.subheader("💡 Business Takeaway")
+    
+    low_clv_churn = train_df[train_df['CLV_quartile'] == 'Low']['Churn_encoded'].mean()
+    premium_churn = train_df[train_df['CLV_quartile'] == 'Premium']['Churn_encoded'].mean()
+    
+    takeaway = f"""
+    **Prioritize High/Premium segments for retention.** Low-CLV customers churn at {low_clv_churn*100:.1f}% 
+    compared to just {premium_churn*100:.1f}% for Premium customers. However, given the volume of Low/Medium 
+    customers, retention efforts should balance:
+    
+    1. **High-ROI Retention**: Focus on preventing Premium customer churn (highest value at risk)
+    2. **Upgrade Programs**: Convert Medium to High via service bundles and upsells
+    3. **Efficient Churn Recovery**: For Low-segment, use automated re-engagement or win-back campaigns
+    4. **Proactive Monitoring**: Use this app's prediction model to identify at-risk customers early
+    """
+    
+    st.info(takeaway)
+
+
+# ============================================================================
+# FOOTER
+# ============================================================================
+
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center'>
+    <p><small>
+    Customer Churn Prediction & CLV Analysis | 
+    Powered by ML (Logistic Regression, Random Forest, XGBoost) | 
+    SHAP + Feature Importance Interpretability
+    </small></p>
+</div>
+""", unsafe_allow_html=True)
