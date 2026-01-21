@@ -454,9 +454,10 @@ with tab2:
     
     try:
         fig = plt.figure(figsize=(10, 7))
+        ax = fig.add_subplot()
         img = plt.imread('figures/roc_curves.png')
-        plt.imshow(img)
-        plt.axis('off')
+        ax.imshow(img)
+        ax.axis('off')
         st.pyplot(fig)
     except FileNotFoundError:
         st.warning("ROC curves plot not found. Please run training first.")
@@ -471,9 +472,10 @@ with tab2:
     
     try:
         fig = plt.figure(figsize=(14, 4))
+        ax = fig.add_subplot()
         img = plt.imread('figures/confusion_matrices.png')
-        plt.imshow(img)
-        plt.axis('off')
+        ax.imshow(img)
+        ax.axis('off')
         st.pyplot(fig)
     except FileNotFoundError:
         st.warning("Confusion matrices plot not found. Please run training first.")
@@ -491,9 +493,10 @@ with tab2:
     
     try:
         fig = plt.figure(figsize=(16, 5))
+        ax = fig.add_subplot()
         img = plt.imread('figures/global_feature_importance.png')
-        plt.imshow(img)
-        plt.axis('off')
+        ax.imshow(img)
+        ax.axis('off')
         st.pyplot(fig)
     except FileNotFoundError:
         st.warning("Feature importance plot not found. Please run training first.")
@@ -528,9 +531,10 @@ with tab3:
     
     try:
         fig = plt.figure(figsize=(14, 5))
+        ax = fig.add_subplot()
         img = plt.imread('figures/clv_distribution.png')
-        plt.imshow(img)
-        plt.axis('off')
+        ax.imshow(img)
+        ax.axis('off')
         st.pyplot(fig)
     except FileNotFoundError:
         st.warning("CLV distribution plot not found.")
@@ -549,9 +553,10 @@ with tab3:
     
     try:
         fig = plt.figure(figsize=(14, 5))
+        ax = fig.add_subplot()
         img = plt.imread('figures/churn_by_clv.png')
-        plt.imshow(img)
-        plt.axis('off')
+        ax.imshow(img)
+        ax.axis('off')
         st.pyplot(fig)
     except FileNotFoundError:
         st.warning("Churn by CLV plot not found.")
