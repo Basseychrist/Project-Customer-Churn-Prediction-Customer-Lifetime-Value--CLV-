@@ -189,6 +189,7 @@ with tab1:
             min_value=0,
             max_value=72,
             value=12,
+            step=1,
             help="Number of months as a customer"
         )
         
@@ -269,7 +270,7 @@ with tab1:
             'SeniorCitizen': int(senior_citizen),
             'Partner': 'Yes' if partner else 'No',
             'Dependents': 'Yes' if dependents else 'No',
-            'tenure': tenure,
+            'tenure': int(tenure),
             'PhoneService': phone_service,
             'MultipleLines': multiple_lines,
             'InternetService': internet_service,
