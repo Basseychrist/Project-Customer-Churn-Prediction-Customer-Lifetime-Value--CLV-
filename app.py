@@ -262,7 +262,7 @@ with tab1:
               delta=f"${monthly_charges:.2f}/month × {adjusted_tenure} months")
     
     # Make prediction
-    if st.button("🚀 Predict Churn & CLV", use_container_width=True):
+    if st.button("🚀 Predict Churn & CLV", width='stretch'):
         
         # Build input dict with all features in alphabetical order (matching encoder)
         input_dict = {
@@ -437,7 +437,7 @@ with tab2:
     st.subheader("📊 Performance Metrics")
     st.dataframe(
         test_results.round(4),
-        use_container_width=True,
+        width='stretch',
         height=200
     )
     
@@ -573,7 +573,7 @@ with tab3:
     churn_by_quartile.columns = ['Total_Customers', 'Churned', 'Churn_Rate', 'Avg_CLV', 'Median_CLV']
     churn_by_quartile['Churn_Rate'] = (churn_by_quartile['Churn_Rate'] * 100).round(1)
     
-    st.dataframe(churn_by_quartile, use_container_width=True)
+    st.dataframe(churn_by_quartile, width='stretch')
     
     # Business takeaway
     st.subheader("💡 Business Takeaway")
