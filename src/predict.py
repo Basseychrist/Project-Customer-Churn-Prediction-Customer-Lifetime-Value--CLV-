@@ -122,6 +122,10 @@ def predict_churn(input_dict, models_dict, train_df):
     # Final conversion to float
     X = X.astype(float)
     
+    # Check for NaN or Inf values and replace with 0
+    X = X.fillna(0)
+    X = X.replace([np.inf, -np.inf], 0)
+    
     predictions = {}
     probabilities = {}
     
@@ -134,6 +138,12 @@ def predict_churn(input_dict, models_dict, train_df):
     
     # Ensemble: average probability across models
     ensemble_proba = np.mean(list(probabilities.values()))
+    
+    # Ensure ensemble_proba is valid (0-1)
+    if np.isnan(ensemble_proba) or np.isinf(ensemble_proba):
+        ensemble_proba = 0.5
+    else:
+        ensemble_proba = max(0.0, min(1.0, float(ensemble_proba)))
     
     return {
         'individual_probabilities': probabilities,

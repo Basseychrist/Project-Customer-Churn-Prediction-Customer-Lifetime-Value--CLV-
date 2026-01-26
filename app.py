@@ -203,7 +203,9 @@ with tab1:
         )
         
         # Auto-calculate total_charges based on tenure and monthly_charges
-        # This ensures data consistency when tenure changes
+        # Clamp values to ensure they stay within reasonable ranges
+        tenure = max(0, min(72, int(tenure)))
+        monthly_charges = max(0.0, min(200.0, float(monthly_charges)))
         total_charges = monthly_charges * max(1, tenure)
         
         st.write(f"💡 **Total Charges (auto-calculated):** ${total_charges:.2f}")
@@ -245,8 +247,10 @@ with tab1:
     with col2:
         st.info(f"🔧 **Services Count:** {services_count}/6")
     
-    # Monthly to total ratio
-    ratio = monthly_charges / max(1, total_charges)
+    # Monthly to total ratio (protected from edge cases)
+    ratio = monthly_charges / max(1.0, total_charges) if total_charges > 0 else 0.0
+    if np.isnan(ratio) or np.isinf(ratio):
+        ratio = 0.0
     with col3:
         st.info(f"📊 **Monthly/Total Ratio:** {ratio:.4f}")
     
@@ -288,8 +292,18 @@ with tab1:
             'internet_no_techsupport': int(internet_service != 'No' and tech_support == 'No')
         }
         
-        # Get predictions
-        result = predict_churn(input_dict, models, train_df)
+        # Get predictions with error handling
+        try:
+            result = predict_churn(input_dict, models, train_df)
+        except Exception as e:
+            st.error(f"⚠️ Error during prediction: {str(e)}")
+            st.info("Please check your inputs and try again.")
+            st.stop()
+        
+        # Validate prediction results
+        if result is None or 'ensemble_probability' not in result:
+            st.error("Invalid prediction result. Please try again.")
+            st.stop()
         
         # Display results
         st.markdown("---")
