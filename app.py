@@ -15,7 +15,15 @@ import seaborn as sns
 import joblib
 from pathlib import Path
 import warnings
+import gc
+
 warnings.filterwarnings('ignore')
+
+# Configure matplotlib to use non-interactive backend
+plt.switch_backend('Agg')
+
+# Force garbage collection to prevent memory leaks during rapid reloads
+gc.collect()
 
 # Try to import SHAP
 try:
@@ -41,39 +49,55 @@ from predict import predict_churn, calculate_clv, get_churn_risk_label
 # CACHING FUNCTIONS
 # ============================================================================
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def load_processed_data():
     """Load processed splits."""
-    train = pd.read_csv('data/processed/train.csv')
-    val = pd.read_csv('data/processed/val.csv')
-    test = pd.read_csv('data/processed/test.csv')
-    return train, val, test
+    try:
+        train = pd.read_csv('data/processed/train.csv')
+        val = pd.read_csv('data/processed/val.csv')
+        test = pd.read_csv('data/processed/test.csv')
+        return train, val, test
+    except Exception as e:
+        st.error(f"Error loading processed data: {e}")
+        return None, None, None
 
 
 @st.cache_resource
 def load_models():
     """Load trained models."""
-    return {
-        'Logistic Regression': joblib.load('models/logistic_regression.pkl'),
-        'Random Forest': joblib.load('models/random_forest.pkl'),
-        'XGBoost': joblib.load('models/xgboost.pkl')
-    }
+    try:
+        return {
+            'Logistic Regression': joblib.load('models/logistic_regression.pkl'),
+            'Random Forest': joblib.load('models/random_forest.pkl'),
+            'XGBoost': joblib.load('models/xgboost.pkl')
+        }
+    except Exception as e:
+        st.error(f"Error loading models: {e}")
+        return {}
 
 
 @st.cache_resource
 def load_importance():
     """Load feature importance tables."""
-    return {
-        'Logistic Regression': pd.read_csv('models/logistic_regression_importance.csv'),
-        'Random Forest': pd.read_csv('models/random_forest_importance.csv'),
-        'XGBoost': pd.read_csv('models/xgboost_importance.csv')
-    }
+    try:
+        return {
+            'Logistic Regression': pd.read_csv('models/logistic_regression_importance.csv'),
+            'Random Forest': pd.read_csv('models/random_forest_importance.csv'),
+            'XGBoost': pd.read_csv('models/xgboost_importance.csv')
+        }
+    except Exception as e:
+        st.error(f"Error loading importance: {e}")
+        return {}
 
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def load_test_results():
     """Load test evaluation results."""
-    return pd.read_csv('models/test_results.csv', index_col='Model')
+    try:
+        return pd.read_csv('models/test_results.csv', index_col='Model')
+    except Exception as e:
+        st.error(f"Error loading test results: {e}")
+        return None
 
 
 @st.cache_resource
@@ -81,7 +105,10 @@ def get_shap_explainer(model):
     """Get SHAP TreeExplainer for a model (cached)."""
     if not SHAP_AVAILABLE:
         return None
-    return shap.TreeExplainer(model)
+    try:
+        return shap.TreeExplainer(model)
+    except:
+        return None
 
 
 # ============================================================================
@@ -94,6 +121,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Initialize session state for stability
+if 'last_error' not in st.session_state:
+    st.session_state.last_error = None
 
 st.markdown("""
 <style>
@@ -121,10 +152,15 @@ customers at risk of leaving.
 """)
 
 # ============================================================================
-# TABS
+# MAIN APP LOGIC WITH ERROR HANDLING
 # ============================================================================
 
-tab1, tab2, tab3 = st.tabs(["🔮 Predict", "📈 Model Performance", "💰 CLV Overview"])
+try:
+    # ========================================================================
+    # TABS
+    # ========================================================================
+    
+    tab1, tab2, tab3 = st.tabs(["🔮 Predict", "📈 Model Performance", "💰 CLV Overview"])
 
 
 # ============================================================================
@@ -134,10 +170,22 @@ tab1, tab2, tab3 = st.tabs(["🔮 Predict", "📈 Model Performance", "💰 CLV 
 with tab1:
     st.header("Make a Prediction")
     
-    # Load data for categorical encoding info
-    train_df, _, _ = load_processed_data()
-    models = load_models()
-    importance_dict = load_importance()
+    try:
+        # Load data for categorical encoding info
+        train_df, _, _ = load_processed_data()
+        if train_df is None:
+            st.error("Could not load training data. Please check if data files exist.")
+            st.stop()
+        
+        models = load_models()
+        if not models:
+            st.error("Could not load models. Please check if model files exist.")
+            st.stop()
+        
+        importance_dict = load_importance()
+        if not importance_dict:
+            st.error("Could not load feature importance. Please check if importance files exist.")
+            st.stop()
     
     st.markdown("""
     Enter customer details below to predict churn probability and estimated CLV.
@@ -437,6 +485,13 @@ with tab1:
             ax.invert_yaxis()
             plt.tight_layout()
             st.pyplot(fig)
+            plt.close(fig)
+    
+    except Exception as tab1_error:
+        st.error(f"⚠️ Error in prediction tab: {str(tab1_error)}")
+        with st.expander("Debug Info"):
+            import traceback
+            st.code(traceback.format_exc())
 
 
 # ============================================================================
@@ -649,6 +704,16 @@ with tab3:
         st.info(takeaway)
     except Exception as e:
         st.warning(f"Could not generate business takeaway: {e}")
+
+
+except Exception as e:
+    # Global error handler - catches any uncaught exceptions
+    st.error("⚠️ An unexpected error occurred in the application.")
+    with st.expander("Error Details (for debugging)"):
+        st.error(str(e))
+        import traceback
+        st.code(traceback.format_exc())
+    st.info("Please refresh the page or try again later.")
 
 
 # ============================================================================
