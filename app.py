@@ -202,14 +202,11 @@ with tab1:
             help="Monthly service charges"
         )
         
-        total_charges = st.number_input(
-            "Total Charges ($)",
-            min_value=0.0,
-            max_value=10000.0,
-            value=780.0,
-            step=50.0,
-            help="Cumulative charges to date"
-        )
+        # Auto-calculate total_charges based on tenure and monthly_charges
+        # This ensures data consistency when tenure changes
+        total_charges = monthly_charges * max(1, tenure)
+        
+        st.write(f"💡 **Total Charges (auto-calculated):** ${total_charges:.2f}")
     
     with col2:
         contract = st.selectbox(
