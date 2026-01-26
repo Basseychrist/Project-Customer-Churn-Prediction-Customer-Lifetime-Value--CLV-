@@ -203,10 +203,19 @@ with tab1:
         )
         
         # Auto-calculate total_charges based on tenure and monthly_charges
-        # Clamp values to ensure they stay within reasonable ranges
-        tenure = max(0, min(72, int(tenure)))
-        monthly_charges = max(0.0, min(200.0, float(monthly_charges)))
-        total_charges = monthly_charges * max(1, tenure)
+        # Defensive checks and type conversion
+        try:
+            tenure = int(tenure) if tenure is not None else 0
+            tenure = max(0, min(72, tenure))
+            
+            monthly_charges = float(monthly_charges) if monthly_charges is not None else 0.0
+            monthly_charges = max(0.0, min(200.0, monthly_charges))
+            
+            total_charges = float(monthly_charges * max(1, tenure))
+        except (ValueError, TypeError):
+            tenure = 0
+            monthly_charges = 0.0
+            total_charges = 0.0
         
         st.write(f"💡 **Total Charges (auto-calculated):** ${total_charges:.2f}")
     
@@ -465,14 +474,18 @@ with tab2:
     st.subheader("📈 ROC Curves")
     
     try:
-        fig = plt.figure(figsize=(10, 7))
-        ax = fig.add_subplot()
-        img = plt.imread('figures/roc_curves.png')
-        ax.imshow(img)
-        ax.axis('off')
-        st.pyplot(fig)
-    except FileNotFoundError:
-        st.warning("ROC curves plot not found. Please run training first.")
+        if Path('figures/roc_curves.png').exists():
+            img = plt.imread('figures/roc_curves.png')
+            fig, ax = plt.subplots(figsize=(10, 7))
+            ax.imshow(img)
+            ax.axis('off')
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+        else:
+            st.warning("ROC curves plot not found. Please run training first.")
+    except Exception as e:
+        st.warning(f"Could not load ROC curves: {e}")
     
     st.markdown("""
     The ROC curve shows the trade-off between True Positive Rate and False Positive Rate.
@@ -483,14 +496,18 @@ with tab2:
     st.subheader("🎯 Confusion Matrices")
     
     try:
-        fig = plt.figure(figsize=(14, 4))
-        ax = fig.add_subplot()
-        img = plt.imread('figures/confusion_matrices.png')
-        ax.imshow(img)
-        ax.axis('off')
-        st.pyplot(fig)
-    except FileNotFoundError:
-        st.warning("Confusion matrices plot not found. Please run training first.")
+        if Path('figures/confusion_matrices.png').exists():
+            img = plt.imread('figures/confusion_matrices.png')
+            fig, ax = plt.subplots(figsize=(14, 4))
+            ax.imshow(img)
+            ax.axis('off')
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+        else:
+            st.warning("Confusion matrices plot not found. Please run training first.")
+    except Exception as e:
+        st.warning(f"Could not load confusion matrices: {e}")
     
     st.markdown("""
     Each matrix shows:
@@ -504,14 +521,18 @@ with tab2:
     st.subheader("🔍 Global Feature Importance")
     
     try:
-        fig = plt.figure(figsize=(16, 5))
-        ax = fig.add_subplot()
-        img = plt.imread('figures/global_feature_importance.png')
-        ax.imshow(img)
-        ax.axis('off')
-        st.pyplot(fig)
-    except FileNotFoundError:
-        st.warning("Feature importance plot not found. Please run training first.")
+        if Path('figures/global_feature_importance.png').exists():
+            img = plt.imread('figures/global_feature_importance.png')
+            fig, ax = plt.subplots(figsize=(16, 5))
+            ax.imshow(img)
+            ax.axis('off')
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+        else:
+            st.warning("Feature importance plot not found. Please run training first.")
+    except Exception as e:
+        st.warning(f"Could not load feature importance: {e}")
     
     st.markdown("""
     Feature importance shows which inputs drive churn predictions:
@@ -534,22 +555,32 @@ with tab3:
     Insights guide retention prioritization.
     """)
     
-    # Ensure CLV_quartile exists
+    # Ensure CLV_quartile exists and handle edge cases
     if 'CLV_quartile' not in train_df.columns:
-        train_df['CLV_quartile'] = pd.qcut(train_df['CLV'], q=4, labels=['Low', 'Medium', 'High', 'Premium'])
+        try:
+            # Handle NaN values in CLV before creating quartiles
+            clv_values = train_df['CLV'].fillna(train_df['CLV'].mean())
+            train_df['CLV_quartile'] = pd.qcut(clv_values, q=4, labels=['Low', 'Medium', 'High', 'Premium'], duplicates='drop')
+        except Exception as e:
+            st.error(f"Could not create CLV quartiles: {e}")
+            train_df['CLV_quartile'] = 'Unknown'
     
     # CLV distribution
     st.subheader("📊 CLV Distribution")
     
     try:
-        fig = plt.figure(figsize=(14, 5))
-        ax = fig.add_subplot()
-        img = plt.imread('figures/clv_distribution.png')
-        ax.imshow(img)
-        ax.axis('off')
-        st.pyplot(fig)
-    except FileNotFoundError:
-        st.warning("CLV distribution plot not found.")
+        if Path('figures/clv_distribution.png').exists():
+            img = plt.imread('figures/clv_distribution.png')
+            fig, ax = plt.subplots(figsize=(14, 5))
+            ax.imshow(img)
+            ax.axis('off')
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+        else:
+            st.warning("CLV distribution plot not found.")
+    except Exception as e:
+        st.warning(f"Could not load CLV distribution: {e}")
     
     col1, col2, col3 = st.columns(3)
     
@@ -564,46 +595,60 @@ with tab3:
     st.subheader("📈 Churn Rate by CLV Segment")
     
     try:
-        fig = plt.figure(figsize=(14, 5))
-        ax = fig.add_subplot()
-        img = plt.imread('figures/churn_by_clv.png')
-        ax.imshow(img)
-        ax.axis('off')
-        st.pyplot(fig)
-    except FileNotFoundError:
-        st.warning("Churn by CLV plot not found.")
+        if Path('figures/churn_by_clv.png').exists():
+            img = plt.imread('figures/churn_by_clv.png')
+            fig, ax = plt.subplots(figsize=(14, 5))
+            ax.imshow(img)
+            ax.axis('off')
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+        else:
+            st.warning("Churn by CLV plot not found.")
+    except Exception as e:
+        st.warning(f"Could not load churn by CLV: {e}")
     
     # Detailed analysis by quartile
     st.subheader("📋 Segment Analysis")
     
-    churn_by_quartile = train_df.groupby('CLV_quartile', observed=True).agg({
-        'Churn_encoded': ['count', 'sum', 'mean'],
-        'CLV': ['mean', 'median']
-    }).round(2)
-    
-    churn_by_quartile.columns = ['Total_Customers', 'Churned', 'Churn_Rate', 'Avg_CLV', 'Median_CLV']
-    churn_by_quartile['Churn_Rate'] = (churn_by_quartile['Churn_Rate'] * 100).round(1)
-    
-    st.dataframe(churn_by_quartile, width='stretch')
+    try:
+        churn_by_quartile = train_df.groupby('CLV_quartile', observed=True).agg({
+            'Churn_encoded': ['count', 'sum', 'mean'],
+            'CLV': ['mean', 'median']
+        }).round(2)
+        
+        churn_by_quartile.columns = ['Total_Customers', 'Churned', 'Churn_Rate', 'Avg_CLV', 'Median_CLV']
+        churn_by_quartile['Churn_Rate'] = (churn_by_quartile['Churn_Rate'] * 100).round(1)
+        
+        st.dataframe(churn_by_quartile, width='stretch')
+    except Exception as e:
+        st.error(f"Could not generate segment analysis: {e}")
     
     # Business takeaway
     st.subheader("💡 Business Takeaway")
     
-    low_clv_churn = train_df[train_df['CLV_quartile'] == 'Low']['Churn_encoded'].mean()
-    premium_churn = train_df[train_df['CLV_quartile'] == 'Premium']['Churn_encoded'].mean()
-    
-    takeaway = f"""
-    **Prioritize High/Premium segments for retention.** Low-CLV customers churn at {low_clv_churn*100:.1f}% 
-    compared to just {premium_churn*100:.1f}% for Premium customers. However, given the volume of Low/Medium 
-    customers, retention efforts should balance:
-    
-    1. **High-ROI Retention**: Focus on preventing Premium customer churn (highest value at risk)
-    2. **Upgrade Programs**: Convert Medium to High via service bundles and upsells
-    3. **Efficient Churn Recovery**: For Low-segment, use automated re-engagement or win-back campaigns
-    4. **Proactive Monitoring**: Use this app's prediction model to identify at-risk customers early
-    """
-    
-    st.info(takeaway)
+    try:
+        low_clv_churn = train_df[train_df['CLV_quartile'] == 'Low']['Churn_encoded'].mean()
+        premium_churn = train_df[train_df['CLV_quartile'] == 'Premium']['Churn_encoded'].mean()
+        
+        # Handle potential NaN values
+        low_clv_churn = low_clv_churn if not pd.isna(low_clv_churn) else 0.0
+        premium_churn = premium_churn if not pd.isna(premium_churn) else 0.0
+        
+        takeaway = f"""
+        **Prioritize High/Premium segments for retention.** Low-CLV customers churn at {low_clv_churn*100:.1f}% 
+        compared to just {premium_churn*100:.1f}% for Premium customers. However, given the volume of Low/Medium 
+        customers, retention efforts should balance:
+        
+        1. **High-ROI Retention**: Focus on preventing Premium customer churn (highest value at risk)
+        2. **Upgrade Programs**: Convert Medium to High via service bundles and upsells
+        3. **Efficient Churn Recovery**: For Low-segment, use automated re-engagement or win-back campaigns
+        4. **Proactive Monitoring**: Use this app's prediction model to identify at-risk customers early
+        """
+        
+        st.info(takeaway)
+    except Exception as e:
+        st.warning(f"Could not generate business takeaway: {e}")
 
 
 # ============================================================================

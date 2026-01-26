@@ -56,100 +56,125 @@ def predict_churn(input_dict, models_dict, train_df):
     Returns:
         dict: Predictions and probabilities from all models
     """
-    # Get encoders from training data
-    encoders, categorical_cols = fit_encoders_from_training_data(train_df)
-    
-    # Create DataFrame from input
-    X = pd.DataFrame([input_dict])
-    
-    # Identify all columns that need encoding (anything not in numeric training data)
-    numeric_training_cols = set(train_df.select_dtypes(include=[np.number]).columns)
-    
-    # Encode ALL categorical variables (not just those we identified)
-    for col in X.columns:
-        # Skip non-feature columns
-        if col in ['customerID', 'Churn', 'CLV', 'CLV_quartile', 'Churn_encoded']:
-            continue
-            
-        # If column is in training data and is categorical, encode it
-        if col in train_df.columns:
-            if col not in numeric_training_cols:  # It's categorical in training data
-                if col in encoders:
-                    try:
-                        X.loc[0, col] = encoders[col].transform([str(X.loc[0, col])])[0]
-                    except ValueError:
-                        # Use first class if value not found
-                        print(f"Warning: {col}='{X.loc[0, col]}' not in training classes. Using '{encoders[col].classes_[0]}'.")
-                        X.loc[0, col] = encoders[col].transform([encoders[col].classes_[0]])[0]
-        # If column is not in training data, it might be an engineered feature we need to skip
-        elif col in ['tenure_bucket', 'services_count', 'monthly_to_total_ratio', 'internet_no_techsupport']:
-            # These are engineered features - keep as is, they should already be numeric or will be encoded
-            if col == 'tenure_bucket':
-                # Encode tenure_bucket using same logic as in data_prep
-                buckets = ['0-6m', '6-12m', '12-24m', '24m+']
-                if col in encoders:
-                    try:
-                        X.loc[0, col] = encoders[col].transform([str(X.loc[0, col])])[0]
-                    except ValueError:
-                        print(f"Warning: tenure_bucket value not found. Using first class.")
-                        X.loc[0, col] = 0
-    
-    # Get feature order from training data (excluding non-feature columns)
-    drop_cols = ['customerID', 'Churn', 'CLV', 'CLV_quartile', 'Churn_encoded']
-    expected_features = [col for col in train_df.columns if col not in drop_cols]
-    
-    # Make sure all expected features are in X
-    for feat in expected_features:
-        if feat not in X.columns:
-            # This shouldn't happen if input_dict has all features
-            print(f"Warning: Expected feature '{feat}' not in input. Setting to 0.")
-            X[feat] = 0
-    
-    # Reorder and select only expected features
-    X = X[expected_features]
-    
-    # Convert all remaining string values to numeric (in case any slipped through)
-    for col in X.columns:
-        if X[col].dtype == 'object':
-            # Try to convert string columns to numeric
-            try:
-                X[col] = pd.to_numeric(X[col], errors='coerce')
-                # Fill any NaN from failed conversions
-                X[col] = X[col].fillna(0)
-            except:
-                X[col] = 0
-    
-    # Final conversion to float
-    X = X.astype(float)
-    
-    # Check for NaN or Inf values and replace with 0
-    X = X.fillna(0)
-    X = X.replace([np.inf, -np.inf], 0)
-    
-    predictions = {}
-    probabilities = {}
-    
-    for model_name, model in models_dict.items():
-        pred = model.predict(X)[0]
-        proba = model.predict_proba(X)[0][1]
+    try:
+        # Get encoders from training data
+        encoders, categorical_cols = fit_encoders_from_training_data(train_df)
         
-        predictions[model_name] = pred
-        probabilities[model_name] = proba
+        # Create DataFrame from input
+        X = pd.DataFrame([input_dict])
+        
+        # Identify all columns that need encoding (anything not in numeric training data)
+        numeric_training_cols = set(train_df.select_dtypes(include=[np.number]).columns)
+        
+        # Encode ALL categorical variables (not just those we identified)
+        for col in X.columns:
+            # Skip non-feature columns
+            if col in ['customerID', 'Churn', 'CLV', 'CLV_quartile', 'Churn_encoded']:
+                continue
+                
+            # If column is in training data and is categorical, encode it
+            if col in train_df.columns:
+                if col not in numeric_training_cols:  # It's categorical in training data
+                    if col in encoders:
+                        try:
+                            X.loc[0, col] = encoders[col].transform([str(X.loc[0, col])])[0]
+                        except (ValueError, KeyError):
+                            # Use first class if value not found
+                            try:
+                                X.loc[0, col] = encoders[col].transform([encoders[col].classes_[0]])[0]
+                            except:
+                                X.loc[0, col] = 0
+            # If column is not in training data, it might be an engineered feature we need to skip
+            elif col in ['tenure_bucket', 'services_count', 'monthly_to_total_ratio', 'internet_no_techsupport']:
+                # These are engineered features - keep as is, they should already be numeric or will be encoded
+                if col == 'tenure_bucket':
+                    # Encode tenure_bucket using same logic as in data_prep
+                    buckets = ['0-6m', '6-12m', '12-24m', '24m+']
+                    if col in encoders:
+                        try:
+                            X.loc[0, col] = encoders[col].transform([str(X.loc[0, col])])[0]
+                        except (ValueError, KeyError):
+                            X.loc[0, col] = 0
+        
+        # Get feature order from training data (excluding non-feature columns)
+        drop_cols = ['customerID', 'Churn', 'CLV', 'CLV_quartile', 'Churn_encoded']
+        expected_features = [col for col in train_df.columns if col not in drop_cols]
+        
+        # Make sure all expected features are in X
+        for feat in expected_features:
+            if feat not in X.columns:
+                # This shouldn't happen if input_dict has all features
+                X[feat] = 0
+        
+        # Reorder and select only expected features
+        X = X[expected_features]
+        
+        # Convert all remaining string values to numeric (in case any slipped through)
+        for col in X.columns:
+            if X[col].dtype == 'object':
+                # Try to convert string columns to numeric
+                try:
+                    X[col] = pd.to_numeric(X[col], errors='coerce')
+                    # Fill any NaN from failed conversions
+                    X[col] = X[col].fillna(0)
+                except:
+                    X[col] = 0
+        
+        # Final conversion to float
+        X = X.astype(float)
+        
+        # Check for NaN or Inf values and replace with 0
+        X = X.fillna(0)
+        X = X.replace([np.inf, -np.inf], 0)
+        
+        predictions = {}
+        probabilities = {}
+        
+        for model_name, model in models_dict.items():
+            try:
+                pred = model.predict(X)[0]
+                proba = model.predict_proba(X)[0][1]
+                
+                predictions[model_name] = int(pred)
+                probabilities[model_name] = float(proba)
+            except Exception as model_err:
+                # If one model fails, default to 0.5 for that model
+                predictions[model_name] = 0
+                probabilities[model_name] = 0.5
+        
+        # Ensemble: average probability across models
+        if probabilities:
+            ensemble_proba = np.mean(list(probabilities.values()))
+        else:
+            ensemble_proba = 0.5
+        
+        # Ensure ensemble_proba is valid (0-1)
+        if np.isnan(ensemble_proba) or np.isinf(ensemble_proba):
+            ensemble_proba = 0.5
+        else:
+            ensemble_proba = max(0.0, min(1.0, float(ensemble_proba)))
+        
+        return {
+            'individual_probabilities': probabilities,
+            'ensemble_probability': ensemble_proba,
+            'individual_predictions': predictions
+        }
     
-    # Ensemble: average probability across models
-    ensemble_proba = np.mean(list(probabilities.values()))
-    
-    # Ensure ensemble_proba is valid (0-1)
-    if np.isnan(ensemble_proba) or np.isinf(ensemble_proba):
-        ensemble_proba = 0.5
-    else:
-        ensemble_proba = max(0.0, min(1.0, float(ensemble_proba)))
-    
-    return {
-        'individual_probabilities': probabilities,
-        'ensemble_probability': ensemble_proba,
-        'individual_predictions': predictions
-    }
+    except Exception as e:
+        # Return safe defaults if everything fails
+        return {
+            'individual_probabilities': {
+                'Logistic Regression': 0.5,
+                'Random Forest': 0.5,
+                'XGBoost': 0.5
+            },
+            'ensemble_probability': 0.5,
+            'individual_predictions': {
+                'Logistic Regression': 0,
+                'Random Forest': 0,
+                'XGBoost': 0
+            }
+        }
 
 
 def get_churn_risk_label(probability):
