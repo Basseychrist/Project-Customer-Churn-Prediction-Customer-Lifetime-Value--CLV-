@@ -152,16 +152,14 @@ customers at risk of leaving.
 """)
 
 # ============================================================================
-# MAIN APP LOGIC WITH ERROR HANDLING
+# MAIN APP LOGIC
 # ============================================================================
 
-try:
-    # ========================================================================
-    # TABS
-    # ========================================================================
-    
-    tab1, tab2, tab3 = st.tabs(["🔮 Predict", "📈 Model Performance", "💰 CLV Overview"])
+# ========================================================================
+# TABS
+# ========================================================================
 
+tab1, tab2, tab3 = st.tabs(["🔮 Predict", "📈 Model Performance", "💰 CLV Overview"])
 
 # ============================================================================
 # TAB 1: PREDICT
@@ -170,22 +168,21 @@ try:
 with tab1:
     st.header("Make a Prediction")
     
-    try:
-        # Load data for categorical encoding info
-        train_df, _, _ = load_processed_data()
-        if train_df is None:
-            st.error("Could not load training data. Please check if data files exist.")
-            st.stop()
-        
-        models = load_models()
-        if not models:
-            st.error("Could not load models. Please check if model files exist.")
-            st.stop()
-        
-        importance_dict = load_importance()
-        if not importance_dict:
-            st.error("Could not load feature importance. Please check if importance files exist.")
-            st.stop()
+    # Load data for categorical encoding info
+    train_df, _, _ = load_processed_data()
+    if train_df is None:
+        st.error("Could not load training data. Please check if data files exist.")
+        st.stop()
+    
+    models = load_models()
+    if not models:
+        st.error("Could not load models. Please check if model files exist.")
+        st.stop()
+    
+    importance_dict = load_importance()
+    if not importance_dict:
+        st.error("Could not load feature importance. Please check if importance files exist.")
+        st.stop()
     
     st.markdown("""
     Enter customer details below to predict churn probability and estimated CLV.
@@ -486,13 +483,6 @@ with tab1:
             plt.tight_layout()
             st.pyplot(fig)
             plt.close(fig)
-    
-    except Exception as tab1_error:
-        st.error(f"⚠️ Error in prediction tab: {str(tab1_error)}")
-        with st.expander("Debug Info"):
-            import traceback
-            st.code(traceback.format_exc())
-
 
 # ============================================================================
 # TAB 2: MODEL PERFORMANCE
@@ -704,16 +694,6 @@ with tab3:
         st.info(takeaway)
     except Exception as e:
         st.warning(f"Could not generate business takeaway: {e}")
-
-
-except Exception as e:
-    # Global error handler - catches any uncaught exceptions
-    st.error("⚠️ An unexpected error occurred in the application.")
-    with st.expander("Error Details (for debugging)"):
-        st.error(str(e))
-        import traceback
-        st.code(traceback.format_exc())
-    st.info("Please refresh the page or try again later.")
 
 
 # ============================================================================
